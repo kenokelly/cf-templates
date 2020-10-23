@@ -1,0 +1,222 @@
+# Only required for easy path.
+Resources:
+  # Create the VPC
+  CustomVPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC'
+  
+  # Create each of the subnet
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '10.0.0.0/24'
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PublicSubnetA'
+      VpcId: !Ref CustomVPC
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '10.0.8.0/24'
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PublicSubnetB'
+      VpcId: !Ref CustomVPC
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '10.0.1.0/24'
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnetA'
+      VpcId: !Ref CustomVPC
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '10.0.9.0/24'
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnetB'
+      VpcId: !Ref CustomVPC
+
+  # Create each of the security groups
+  SecurityGroupPublicSubnet:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group created with CF template for SecurityGroupPublicSubnet.
+      VpcId : !Ref CustomVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-classic-load-balancer-sg'
+        - Key: Description
+          Value: !Sub 'Security Group created for Classic Load Balancer with ${AWS::StackName}.'
+  SecurityGroupPrivateSubnet:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Security Group created with CF template for with ${AWS::StackName}'
+      VpcId : !Ref CustomVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !Ref SecurityGroupPublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-webserver-sg'
+        - Key: Description
+          Value: !Sub 'Security Group created for Webservers with ${AWS::StackName}.'
+
+  # Create Internet gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-IGW'
+  
+  # Attach IGW
+  AttachIGWtoVPC:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref CustomVPC
+  
+  # Create Elastic IP addresses
+  ElasticIPA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-EIP-A'
+  ElasticIPB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-EIP-B'
+
+  # Create NAT Gateways
+  NATGwA:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt ElasticIPA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags: 
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-NATGwA'
+  NATGwB:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt ElasticIPB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags: 
+        - Key: Name
+          Value: !Sub '${AWS::StackName}NATGwB'
+  
+  # Create all the routing tables
+  RouteTablePublicA:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RouteTablePublicA'
+  RouteTablePublicB:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RouteTablePublicB'
+  RouteTablePrivateA:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RouteTablePrivateA'
+  RouteTablePrivateB:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RouteTablePrivateB'
+  # Add IGW to route to our tables public traffic
+  AddIGWRoutingRuleA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublicA
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  AddIGWInternetRuleB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublicB
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  # Add NAT gateway routes to route tables
+  AddNATRoutingRuleWebserverA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGwA
+  AddNATRoutingRuleWebserverB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGwB
+
+  # Make subnet association with route tables
+  AssociatePublicSubnetAWithRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref RouteTablePublicA
+      SubnetId: !Ref PublicSubnetA
+  AssociatePublicSubnetBWithRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref RouteTablePublicB
+      SubnetId: !Ref PublicSubnetB
+  AssociatePrivateWebserverASubnetWithRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref RouteTablePrivateA
+      SubnetId: !Ref PrivateSubnetA
+  AssociatePrivateWebserverBSubnetWithRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref RouteTablePrivateB
+      SubnetId: !Ref PrivateSubnetB
+
+Outputs:
+  AccountID:
+    Description: Application VPC Account ID.
+    Value: !Sub '${AWS::AccountId}'
+  ApplicationVPCID:
+    Description: Application VPC ID.
+    Value: !Sub '${CustomVPC}'
